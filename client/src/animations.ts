@@ -67,6 +67,8 @@ export function buildAnimSet(mixer: THREE.AnimationMixer, clips: THREE.Animation
     if (!clip) return null;
     const action = mixer.clipAction(clip);
     action.enabled = true;
+    action.zeroSlopeAtStart = true;
+    action.zeroSlopeAtEnd = true;
     action.setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce, loop ? Infinity : 1);
     if (!loop) action.clampWhenFinished = true;
     return action;
@@ -110,10 +112,8 @@ function buildGeneratedSubclips(master: THREE.AnimationClip): THREE.AnimationCli
     { name: "run", start: 553, end: 576 },
     { name: "strafe_left", start: 629, end: 648 },
     { name: "strafe_right", start: 694, end: 713 },
-    { name: "slash_1", start: 740, end: 784 },
-    { name: "slash_start", start: 795, end: 804 },
-    { name: "slash_loop", start: 833, end: 862 },
-    { name: "slash_end", start: 891, end: 905 },
+    // Use one clean slash clip for attack; separate heavy clip is unavailable in this asset.
+    { name: "slash_1", start: 740, end: 805 },
     { name: "sneak", start: 959, end: 1008 },
     { name: "spawn", start: 1060, end: 1179 },
     { name: "walk", start: 1459, end: 1488 },
@@ -189,20 +189,16 @@ export class AnimController {
         return;
       case "attack_windup":
         if (this.lastState !== "attack_windup" || this.lastCombo !== combo) {
-          const action = attackKind === "heavy" ? this.anims.slashStart ?? this.anims.slash1 : this.anims.slash1;
-          this.fadeTo(action, 0.05, true);
+          const action = this.anims.slash1;
+          this.fadeTo(action, 0.08, true);
+          if (action) action.timeScale = attackKind === "heavy" ? 0.78 : 1.0;
         }
         break;
       case "attack_active":
-        if (this.lastState !== "attack_active" || this.lastCombo !== combo) {
-          const action = attackKind === "heavy" ? this.anims.slashLoop ?? this.anims.slash1 : this.anims.slash1;
-          this.fadeTo(action, 0.04, attackKind === "heavy");
-        }
+        // Keep current attack clip running through active for continuity.
         break;
       case "attack_recovery":
-        if (this.lastState !== "attack_recovery" || this.lastCombo !== combo) {
-          this.fadeTo(this.anims.slashEnd ?? this.anims.slash1, 0.08, false);
-        }
+        // Let locomotion blend take over from the same attack clip; avoids extra chopped transitions.
         break;
       case "hit":
         if (this.lastState !== "hit") {
@@ -214,19 +210,13 @@ export class AnimController {
         if (this.lastState !== "stunned") this.fadeTo(this.anims.hitFront ?? this.anims.hitBack, 0.05, false);
         break;
       case "dodging":
-        if (this.lastState !== "dodging") {
-          // No dedicated dodge clip — reuse strafe for visual; could improve with custom anim
-          const dir = pickStrafeDir(this.anims, localMoveX, localMoveZ);
-          this.fadeTo(dir, 0.05, true);
-        }
+        // Dodging is disabled in gameplay; keep locomotion fallback for compatibility.
+        if (this.lastState !== "dodging") this.fadeTo(this.anims.idle ?? this.anims.walk, 0.12, false);
         break;
       case "blocking":
       case "parry_window": {
-        // Use sneak/idle as block-stance approximation
-        const action = this.anims.sneak ?? this.anims.idle;
-        if (this.lastState !== "blocking" && this.lastState !== "parry_window") {
-          this.fadeTo(action, 0.12, true);
-        }
+        // Block/parry are disabled in gameplay; keep idle fallback for compatibility.
+        if (this.lastState !== "blocking" && this.lastState !== "parry_window") this.fadeTo(this.anims.idle, 0.12, false);
         break;
       }
       case "idle":
@@ -235,7 +225,7 @@ export class AnimController {
         const locoId = pickLocomotionId(localMoveX, localMoveZ, speed, sprint);
         if (locoId !== this.lastLocomotionId || (this.lastState !== "idle" && this.lastState !== "moving")) {
           const action = pickLocomotion(this.anims, locoId);
-          this.fadeTo(action, 0.18, true);
+          this.fadeTo(action, 0.26, true);
           // Speed up walk if sprinting and using walk fallback
           if (action && locoId === "run_fallback") action.timeScale = 1.6;
           else if (action) action.timeScale = 1.0;
@@ -255,16 +245,21 @@ export class AnimController {
   private fadeTo(action: THREE.AnimationAction | null, fade: number, restart = true) {
     if (!action) return;
     if (this.current === action) return;
+    const current = this.current;
     if (restart) {
       action.reset();
     }
     action.enabled = true;
     action.setEffectiveWeight(1);
     action.setEffectiveTimeScale(1);
-    action.fadeIn(fade);
-    action.play();
-    if (this.current && this.current !== action) {
-      this.current.fadeOut(fade);
+    if (current && (current as unknown as { loop?: number }).loop === THREE.LoopRepeat && (action as unknown as { loop?: number }).loop === THREE.LoopRepeat) {
+      action.syncWith(current);
+    }
+    if (current && current !== action) {
+      current.crossFadeTo(action, fade, true);
+    } else {
+      action.fadeIn(fade);
+      action.play();
     }
     this.current = action;
   }
@@ -296,12 +291,6 @@ function pickLocomotion(a: AnimSet, id: string): THREE.AnimationAction | null {
     default:
       return a.idle;
   }
-}
-
-function pickStrafeDir(a: AnimSet, mx: number, _mz: number): THREE.AnimationAction | null {
-  if (mx > 0.3) return a.strafeRight ?? a.run;
-  if (mx < -0.3) return a.strafeLeft ?? a.run;
-  return a.run ?? a.walk;
 }
 
 function pickHitDir(a: AnimSet, mx: number, mz: number): THREE.AnimationAction | null {

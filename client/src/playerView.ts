@@ -177,6 +177,10 @@ export class PlayerView {
     this.group.removeFromParent();
     this.mixer.stopAllAction();
   }
+
+  playSpawnAnim() {
+    this.anim.playSpawn();
+  }
 }
 
 function makeNameSprite(name: string, tint: THREE.Color): THREE.Sprite {

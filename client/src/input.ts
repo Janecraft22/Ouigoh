@@ -1,6 +1,5 @@
 import {
   BTN_SPRINT,
-  PRESS_HEAVY,
   PRESS_LIGHT,
 } from "@ouigoh/shared";
 
@@ -76,7 +75,6 @@ export class InputController {
     this.updateMovement();
     if (k === "shift") this.state.buttons |= BTN_SPRINT;
     if (k === "f") this.state.pressed |= PRESS_LIGHT; // alt binding
-    if (k === "r") this.state.pressed |= PRESS_HEAVY; // alt binding
   };
 
   private onKeyUp = (e: KeyboardEvent) => {
@@ -92,7 +90,6 @@ export class InputController {
       return;
     }
     if (e.button === 0) this.state.pressed |= PRESS_LIGHT;
-    else if (e.button === 2) this.state.pressed |= PRESS_HEAVY;
   };
 
   private onMouseUp = (_e: MouseEvent) => {

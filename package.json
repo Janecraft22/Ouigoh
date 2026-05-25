@@ -17,7 +17,7 @@
     "build:server": "npm run build -w shared && npm run build -w server",
     "start": "node server/dist/index.js",
     "lint": "eslint .",
-    "typecheck": "npm run typecheck -w shared && npm run typecheck -w client && npm run typecheck -w server",
+    "typecheck": "npm run build -w shared && npm run typecheck -w client && npm run typecheck -w server",
     "format": "prettier --write ."
   },
   "devDependencies": {

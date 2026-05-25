@@ -292,6 +292,7 @@ export class Game {
       case "spawn":
         // small flash at spawn position
         this.spawnHitSpark(ev.x, ev.z, 0x88c0ff, 0.7);
+        this.players.get(ev.id)?.playSpawnAnim();
         break;
       case "swing": {
         const view = this.players.get(ev.id);

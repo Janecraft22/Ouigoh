@@ -2,11 +2,8 @@ import {
   ACCELERATION,
   ARENA_RADIUS,
   BACK_SPEED_MULT,
-  BLOCK,
-  BTN_BLOCK,
   BTN_SPRINT,
   DEATH_RESPAWN_DELAY,
-  DODGE,
   FRICTION,
   HEAVY_ATTACK,
   HIT_STUN,
@@ -15,12 +12,10 @@ import {
   MAX_PLAYERS_PER_ROOM,
   MAX_STAMINA,
   PLAYER_RADIUS,
-  PRESS_DODGE,
   PRESS_HEAVY,
   PRESS_LIGHT,
   RUN_SPEED,
   STAMINA_REGEN,
-  STAMINA_REGEN_BLOCK,
   STAMINA_REGEN_DELAY,
   STRAFE_SPEED_MULT,
   TICK_DT,
@@ -49,6 +44,8 @@ const ATTACK_PARAMS: Record<AttackKind, AttackParams> = {
   light: LIGHT_ATTACK,
   heavy: HEAVY_ATTACK,
 };
+
+const SPRINT_STAMINA_DRAIN = 18; // stamina per second while sprinting
 
 interface PendingAttack {
   kind: AttackKind;
@@ -84,15 +81,10 @@ export class ServerPlayer {
   lastSpendT = 0;
   /** Combo timer — when in attack_recovery, time we'll accept next swing. */
   comboT = 0;
-  /** Time until dodge cooldown clears. */
-  dodgeCooldown = 0;
   /** Time remaining until respawn. */
   respawnT = 0;
   /** Currently executing attack (if in attack_* state). */
   attack: PendingAttack | null = null;
-  /** Dodge direction (world-space) when state="dodging". */
-  dodgeDirX = 0;
-  dodgeDirZ = 0;
 
   constructor(id: string, name: string) {
     this.id = id;
@@ -168,7 +160,6 @@ export class Room {
     p.attack = null;
     p.setState("idle");
     p.respawnT = 0;
-    p.dodgeCooldown = 0;
   }
 
   setInput(id: string, input: ClientInput) {
@@ -207,7 +198,6 @@ export class Room {
   private stepPlayer(p: ServerPlayer, dt: number) {
     p.stateT += dt;
     p.lastSpendT += dt;
-    p.dodgeCooldown = Math.max(0, p.dodgeCooldown - dt);
 
     // Dead -> respawn
     if (p.state === "dead") {
@@ -220,34 +210,32 @@ export class Room {
     p.yaw = p.input.yaw;
 
     // Buttons
-    p.sprint = (p.input.buttons & BTN_SPRINT) !== 0;
-    const blockHeld = (p.input.buttons & BTN_BLOCK) !== 0;
+    p.sprint = (p.input.buttons & BTN_SPRINT) !== 0 && p.stamina > 0;
 
     // Edge actions (consume bits)
     const wantLight = (p.input.pressed & PRESS_LIGHT) !== 0;
-    const wantHeavy = (p.input.pressed & PRESS_HEAVY) !== 0;
-    const wantDodge = (p.input.pressed & PRESS_DODGE) !== 0;
-    p.input.pressed &= ~(PRESS_LIGHT | PRESS_HEAVY | PRESS_DODGE);
+    p.input.pressed &= ~(PRESS_LIGHT | PRESS_HEAVY);
 
     // Stamina regen logic
     let regen = STAMINA_REGEN;
-    if (p.state === "blocking" || p.state === "parry_window") regen = STAMINA_REGEN_BLOCK;
     if (p.state === "attack_windup" || p.state === "attack_active") regen = 0;
     if (p.lastSpendT < STAMINA_REGEN_DELAY) regen = 0;
     if (p.stamina < MAX_STAMINA) p.stamina = Math.min(MAX_STAMINA, p.stamina + regen * dt);
+
+    // Sprint drains stamina while moving; when empty, sprint automatically stops.
+    const moveMag = Math.hypot(p.input.moveX, p.input.moveZ);
+    if (p.sprint && moveMag > 0.05) {
+      p.stamina = Math.max(0, p.stamina - SPRINT_STAMINA_DRAIN * dt);
+      p.lastSpendT = 0;
+      if (p.stamina <= 0) p.sprint = false;
+    }
 
     // Per-state behavior
     switch (p.state) {
       case "idle":
       case "moving":
         // First try edge actions, then movement
-        if (wantDodge && this.tryDodge(p)) break;
-        if (wantHeavy && this.tryAttack(p, "heavy", 0)) break;
         if (wantLight && this.tryAttack(p, "light", 0)) break;
-        if (blockHeld) {
-          p.setState("parry_window");
-          break;
-        }
         this.applyMovement(p, dt, 1);
         break;
 
@@ -292,13 +280,6 @@ export class Room {
           this.tryAttack(p, "light", p.attack.combo + 1);
           break;
         }
-        // Allow cancel into block
-        if (blockHeld && p.stateT > 0.05) {
-          p.attack = null;
-          p.combo = 0;
-          p.setState("parry_window");
-          break;
-        }
         this.applyMovement(p, dt, 0.45);
         const params = p.attack ? ATTACK_PARAMS[p.attack.kind] : null;
         if (!params || p.stateT >= params.recovery) {
@@ -308,28 +289,6 @@ export class Room {
         }
         break;
       }
-
-      case "parry_window":
-        // Holds for short window then transitions to blocking
-        this.applyMovement(p, dt, BLOCK.moveMult);
-        if (!blockHeld) {
-          p.setState("idle");
-          break;
-        }
-        if (p.stateT >= BLOCK.parryWindow) {
-          p.setState("blocking");
-        }
-        break;
-
-      case "blocking":
-        this.applyMovement(p, dt, BLOCK.moveMult);
-        if (!blockHeld) p.setState("idle");
-        if (p.stamina <= 0) {
-          // Stamina broken
-          p.stamina = 0;
-          p.setState("stunned");
-        }
-        break;
 
       case "stunned":
         // No movement input; just decel
@@ -342,45 +301,7 @@ export class Room {
         if (p.stateT >= HIT_STUN) p.setState("idle");
         break;
 
-      case "dodging": {
-        const t = p.stateT;
-        // Velocity curve: ease-out
-        const k = Math.max(0, 1 - t / DODGE.duration);
-        const speed = (DODGE.distance / DODGE.duration) * (0.5 + 1.5 * k);
-        p.vx = p.dodgeDirX * speed;
-        p.vz = p.dodgeDirZ * speed;
-        this.integrate(p, dt);
-        if (t >= DODGE.duration) p.setState("idle");
-        break;
-      }
-
     }
-  }
-
-  private tryDodge(p: ServerPlayer): boolean {
-    if (p.dodgeCooldown > 0) return false;
-    if (p.stamina < DODGE.staminaCost) return false;
-    let mx = p.input.moveX,
-      mz = p.input.moveZ;
-    const mag = Math.hypot(mx, mz);
-    if (mag < 0.1) {
-      // Default: dodge backwards
-      mx = 0;
-      mz = -1;
-    } else {
-      mx /= mag;
-      mz /= mag;
-    }
-    // Rotate local-space input by player yaw to get world direction
-    const cy = Math.cos(p.yaw),
-      sy = Math.sin(p.yaw);
-    p.dodgeDirX = mx * cy + mz * sy;
-    p.dodgeDirZ = -mx * sy + mz * cy;
-    p.stamina -= DODGE.staminaCost;
-    p.lastSpendT = 0;
-    p.dodgeCooldown = DODGE.cooldown;
-    p.setState("dodging");
-    return true;
   }
 
   private tryAttack(p: ServerPlayer, kind: AttackKind, combo: number): boolean {
@@ -501,47 +422,8 @@ export class Room {
       const angle = Math.acos(Math.max(-1, Math.min(1, dot)));
       if (angle > halfArc) continue;
 
-      // Hit confirmed — check defensive options
+      // Hit confirmed
       attacker.attack.hitTargets.add(target.id);
-
-      // Dodge i-frames
-      if (target.state === "dodging") {
-        const t = target.stateT;
-        if (t >= DODGE.iFrameStart && t <= DODGE.iFrameEnd) {
-          // dodged
-          continue;
-        }
-      }
-
-      // Parry
-      const facingDot = (-dx * Math.sin(target.yaw) + -dz * Math.cos(target.yaw)) / d;
-      const targetFacingAttacker = facingDot > 0.3;
-      if (target.state === "parry_window" && targetFacingAttacker) {
-        // Parry
-        this.events.push({ kind: "parry", attackerId: attacker.id, defenderId: target.id, x: target.x, z: target.z });
-        attacker.setState("stunned");
-        attacker.attack = null;
-        attacker.combo = 0;
-        // Refund some stamina to defender as parry reward
-        target.stamina = Math.min(MAX_STAMINA, target.stamina + 10);
-        return;
-      }
-
-      // Block
-      if ((target.state === "blocking" || target.state === "parry_window") && targetFacingAttacker) {
-        const dmg = params.damage * BLOCK.damageMult;
-        target.stamina -= params.damage * BLOCK.staminaPerDamage;
-        target.lastSpendT = 0;
-        if (target.stamina <= 0) {
-          target.stamina = 0;
-          target.setState("stunned");
-        }
-        if (dmg > 0) {
-          target.health = Math.max(0, target.health - dmg);
-        }
-        this.events.push({ kind: "block", attackerId: attacker.id, defenderId: target.id, x: target.x, z: target.z });
-        continue;
-      }
 
       // Damage
       target.health -= params.damage;

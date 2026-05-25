@@ -46,7 +46,11 @@ export class PlayerView {
 
     this.group = new THREE.Group();
     const cloned = skeletonClone(sourceModel) as THREE.Group;
+    // Source model is hidden in Game.preload() because it is only a clone template.
+    // Ensure each spawned player clone is force-enabled for rendering.
+    cloned.visible = true;
     cloned.traverse((obj) => {
+      obj.visible = true;
       if ((obj as THREE.Mesh).isMesh || (obj as THREE.SkinnedMesh).isSkinnedMesh) {
         obj.castShadow = true;
         obj.receiveShadow = true;

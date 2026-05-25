@@ -1,7 +1,5 @@
 import {
-  BTN_BLOCK,
   BTN_SPRINT,
-  PRESS_DODGE,
   PRESS_HEAVY,
   PRESS_LIGHT,
 } from "@ouigoh/shared";
@@ -77,8 +75,6 @@ export class InputController {
     this.keys.add(k);
     this.updateMovement();
     if (k === "shift") this.state.buttons |= BTN_SPRINT;
-    if (k === "q") this.state.buttons |= BTN_BLOCK;
-    if (k === " ") this.state.pressed |= PRESS_DODGE;
     if (k === "f") this.state.pressed |= PRESS_LIGHT; // alt binding
     if (k === "r") this.state.pressed |= PRESS_HEAVY; // alt binding
   };
@@ -88,7 +84,6 @@ export class InputController {
     this.keys.delete(k);
     this.updateMovement();
     if (k === "shift") this.state.buttons &= ~BTN_SPRINT;
-    if (k === "q") this.state.buttons &= ~BTN_BLOCK;
   };
 
   private onMouseDown = (e: MouseEvent) => {
@@ -106,8 +101,10 @@ export class InputController {
 
   private onMouseMove = (e: MouseEvent) => {
     if (!this.mouseActive) return;
-    this.state.yaw -= e.movementX * this.mouseSensitivity;
-    this.state.pitch -= e.movementY * this.mouseSensitivity;
+    // Inverted earlier; use natural camera controls:
+    // move mouse right -> look right, move mouse up -> look up.
+    this.state.yaw += e.movementX * this.mouseSensitivity;
+    this.state.pitch += e.movementY * this.mouseSensitivity;
     // Wrap yaw to (-PI, PI]
     if (this.state.yaw > Math.PI) this.state.yaw -= Math.PI * 2;
     if (this.state.yaw < -Math.PI) this.state.yaw += Math.PI * 2;
@@ -123,8 +120,9 @@ export class InputController {
       mz = 0;
     if (this.keys.has("w")) mz += 1;
     if (this.keys.has("s")) mz -= 1;
-    if (this.keys.has("a")) mx -= 1;
-    if (this.keys.has("d")) mx += 1;
+    // Left/right were reversed; flip local X sign mapping.
+    if (this.keys.has("a")) mx += 1;
+    if (this.keys.has("d")) mx -= 1;
     this.state.moveX = mx;
     this.state.moveZ = mz;
   }

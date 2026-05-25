@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <meta name="theme-color" content="#0b0d10" />
+    <title>Ouigoh — Online Melee Arena</title>
+    <link rel="icon" href="data:," />
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      html, body {
+        margin: 0;
+        padding: 0;
+        background: #0b0d10;
+        color: #e7e7e7;
+        font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        overflow: hidden;
+        user-select: none;
+        height: 100%;
+      }
+      #app {
+        position: fixed;
+        inset: 0;
+      }
+      canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+        cursor: none;
+      }
+
+      /* Menu overlay */
+      #menu {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background: radial-gradient(ellipse at center, #1a1f24 0%, #0b0d10 80%);
+        z-index: 20;
+        text-align: center;
+      }
+      #menu h1 {
+        font-size: clamp(40px, 8vw, 96px);
+        margin: 0 0 8px 0;
+        letter-spacing: 4px;
+        font-weight: 900;
+        background: linear-gradient(180deg, #c8d6e5 0%, #6b7c93 100%);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+        text-shadow: 0 4px 30px rgba(120, 200, 160, 0.06);
+      }
+      #menu .tag {
+        opacity: 0.75;
+        max-width: 540px;
+        line-height: 1.5;
+        margin: 0 0 28px 0;
+        font-size: 14px;
+      }
+      #menu .row {
+        display: flex;
+        gap: 8px;
+      }
+      #menu input {
+        background: #11161c;
+        color: #f0f0f0;
+        border: 1px solid #2b3440;
+        padding: 12px 14px;
+        border-radius: 8px;
+        font-size: 16px;
+        outline: none;
+        font-family: inherit;
+      }
+      #menu input:focus {
+        border-color: #6cf3a8;
+      }
+      #menu button {
+        background: linear-gradient(180deg, #4be37c 0%, #2aa45a 100%);
+        border: none;
+        color: #0b0d10;
+        font-weight: 700;
+        padding: 12px 24px;
+        border-radius: 8px;
+        font-size: 16px;
+        cursor: pointer;
+        font-family: inherit;
+        letter-spacing: 0.5px;
+      }
+      #menu button:hover {
+        filter: brightness(1.06);
+      }
+      #menu .controls {
+        margin-top: 28px;
+        display: grid;
+        grid-template-columns: max-content max-content;
+        gap: 6px 24px;
+        opacity: 0.7;
+        font-size: 13px;
+      }
+      #menu .controls .k {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        color: #b8e0c8;
+      }
+      #loading {
+        margin-top: 14px;
+        font-size: 13px;
+        opacity: 0.7;
+      }
+
+      /* HUD */
+      #hud {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        z-index: 10;
+      }
+      #hud.hidden { display: none; }
+      #crosshair {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 8px;
+        height: 8px;
+        margin-left: -4px;
+        margin-top: -4px;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.85);
+        box-shadow: 0 0 0 1px rgba(0,0,0,0.5);
+      }
+      #stats {
+        position: absolute;
+        left: 20px;
+        bottom: 20px;
+        width: min(360px, 36vw);
+      }
+      .bar {
+        height: 14px;
+        background: rgba(0,0,0,0.5);
+        border-radius: 7px;
+        overflow: hidden;
+        margin-bottom: 6px;
+        border: 1px solid rgba(255,255,255,0.08);
+        position: relative;
+      }
+      .bar > .fill {
+        height: 100%;
+        transition: width 80ms linear;
+      }
+      .bar .label {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 1px;
+        color: #fff;
+        text-shadow: 0 1px 1px rgba(0,0,0,0.7);
+      }
+      #health .fill { background: linear-gradient(90deg, #ff6c6c 0%, #ff4040 100%); }
+      #stamina .fill { background: linear-gradient(90deg, #ffd86c 0%, #f0a020 100%); }
+
+      #scoreboard {
+        position: absolute;
+        top: 20px;
+        right: 20px;
+        background: rgba(8, 11, 16, 0.7);
+        border: 1px solid rgba(255,255,255,0.07);
+        border-radius: 8px;
+        padding: 10px 14px;
+        font-size: 13px;
+        min-width: 220px;
+        backdrop-filter: blur(6px);
+      }
+      #scoreboard h3 {
+        margin: 0 0 6px 0;
+        font-size: 11px;
+        letter-spacing: 2px;
+        opacity: 0.6;
+      }
+      #scoreboard table { width: 100%; border-collapse: collapse; }
+      #scoreboard td { padding: 2px 4px; }
+      #scoreboard td.k { text-align: right; color: #6cf3a8; }
+      #scoreboard td.d { text-align: right; color: #ff7878; }
+      #scoreboard tr.me td { font-weight: 700; }
+
+      #killfeed {
+        position: absolute;
+        top: 20px;
+        left: 20px;
+        max-width: 360px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        font-size: 13px;
+        opacity: 0.95;
+      }
+      #killfeed .item {
+        background: rgba(8, 11, 16, 0.65);
+        border: 1px solid rgba(255,255,255,0.07);
+        padding: 5px 9px;
+        border-radius: 6px;
+        animation: fadein 0.2s ease, fadeout 0.4s ease 4.6s forwards;
+      }
+      @keyframes fadein { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: none; } }
+      @keyframes fadeout { to { opacity: 0; transform: translateX(8px); } }
+
+      #deathOverlay {
+        position: fixed;
+        inset: 0;
+        background: radial-gradient(ellipse at center, rgba(180, 30, 30, 0.0) 0%, rgba(80, 0, 0, 0.55) 80%);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 48px;
+        font-weight: 900;
+        letter-spacing: 8px;
+        opacity: 0;
+        pointer-events: none;
+        z-index: 12;
+        transition: opacity 200ms ease;
+      }
+      #deathOverlay.show { opacity: 1; }
+      #connectionStatus {
+        position: absolute;
+        bottom: 20px;
+        right: 20px;
+        font-size: 12px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        opacity: 0.7;
+      }
+      #connectionStatus.bad { color: #ff7878; }
+      #connectionStatus.ok { color: #6cf3a8; }
+
+      #hintBar {
+        position: absolute;
+        bottom: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        font-size: 12px;
+        letter-spacing: 1px;
+        opacity: 0.5;
+        background: rgba(0,0,0,0.45);
+        padding: 6px 12px;
+        border-radius: 999px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="canvas"></canvas>
+
+      <div id="hud" class="hidden">
+        <div id="crosshair"></div>
+        <div id="stats">
+          <div id="health" class="bar"><div class="fill" style="width:100%"></div><div class="label">HP 100</div></div>
+          <div id="stamina" class="bar"><div class="fill" style="width:100%"></div><div class="label">STAM 100</div></div>
+        </div>
+        <div id="scoreboard">
+          <h3>SCOREBOARD</h3>
+          <table>
+            <tbody id="scoreboardBody"></tbody>
+          </table>
+        </div>
+        <div id="killfeed"></div>
+        <div id="deathOverlay">YOU DIED</div>
+        <div id="connectionStatus">connecting…</div>
+        <div id="hintBar">WASD move · MOUSE look · LMB light · RMB heavy · SHIFT sprint · SPACE dodge · Hold Q block · ESC release pointer</div>
+      </div>
+
+      <div id="menu">
+        <h1>OUIGOH</h1>
+        <p class="tag">Skill-based online melee arena. No jumping, no shortcuts — just timing, footwork, and blade discipline.</p>
+        <div class="row">
+          <input id="nameInput" type="text" placeholder="enter name" maxlength="16" />
+          <button id="joinBtn">ENTER ARENA</button>
+        </div>
+        <div id="loading"></div>
+        <div class="controls">
+          <span class="k">WASD</span><span>Move</span>
+          <span class="k">Mouse</span><span>Look</span>
+          <span class="k">LMB</span><span>Light attack (combo)</span>
+          <span class="k">RMB</span><span>Heavy attack</span>
+          <span class="k">Hold Q</span><span>Block / parry</span>
+          <span class="k">Space</span><span>Dodge roll</span>
+          <span class="k">Shift</span><span>Sprint</span>
+          <span class="k">ESC</span><span>Release pointer</span>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

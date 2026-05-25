@@ -255,11 +255,11 @@ export class AnimController {
     if (current && (current as unknown as { loop?: number }).loop === THREE.LoopRepeat && (action as unknown as { loop?: number }).loop === THREE.LoopRepeat) {
       action.syncWith(current);
     }
+    action.play();
     if (current && current !== action) {
       current.crossFadeTo(action, fade, true);
     } else {
       action.fadeIn(fade);
-      action.play();
     }
     this.current = action;
   }

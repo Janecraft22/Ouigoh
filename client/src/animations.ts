@@ -126,11 +126,88 @@ function buildGeneratedSubclips(master: THREE.AnimationClip): THREE.AnimationCli
     const end = Math.min(r.end, maxFrame - 1);
     if (end <= r.start + 1) continue;
     const sub = THREE.AnimationUtils.subclip(master, r.name, r.start, end, fps);
-    if (sub.tracks.length > 0 && sub.duration > 0) out.push(sub);
+    if (sub.tracks.length > 0 && sub.duration > 0) {
+      if (isLoopClipName(r.name)) makeSeamlessLoop(sub, 4);
+      out.push(sub);
+    }
   }
   // Keep original as final fallback for debugging/manual tuning.
   out.push(master);
   return out;
+}
+
+function isLoopClipName(name: string): boolean {
+  return (
+    name === "idle" ||
+    name === "walk" ||
+    name === "run" ||
+    name === "backpedal" ||
+    name === "strafe_left" ||
+    name === "strafe_right" ||
+    name === "sneak"
+  );
+}
+
+function makeSeamlessLoop(clip: THREE.AnimationClip, blendKeys: number) {
+  for (const track of clip.tracks) {
+    const times = track.times;
+    if (!times || times.length < 3) continue;
+    const n = times.length;
+    const k = Math.max(1, Math.min(blendKeys, Math.floor((n - 1) / 2)));
+
+    if (track instanceof THREE.VectorKeyframeTrack || track instanceof THREE.NumberKeyframeTrack) {
+      smoothLinearTrack(track.values, track.getValueSize(), n, k);
+    } else if (track instanceof THREE.QuaternionKeyframeTrack) {
+      smoothQuaternionTrack(track.values, n, k);
+    }
+  }
+}
+
+function smoothLinearTrack(values: ArrayLike<number>, stride: number, count: number, k: number) {
+  const a = values as Float32Array | number[];
+  for (let i = 0; i < k; i++) {
+    const t = (i + 1) / (k + 1);
+    const w = t * t * (3 - 2 * t); // smoothstep
+    const left = i * stride;
+    const right = (count - 1 - i) * stride;
+    for (let c = 0; c < stride; c++) {
+      const s = a[left + c];
+      const e = a[right + c];
+      a[left + c] = s * (1 - w) + e * w;
+      a[right + c] = e * (1 - w) + s * w;
+    }
+  }
+}
+
+function smoothQuaternionTrack(values: ArrayLike<number>, count: number, k: number) {
+  const a = values as Float32Array | number[];
+  const qL = new THREE.Quaternion();
+  const qR = new THREE.Quaternion();
+  const qMixL = new THREE.Quaternion();
+  const qMixR = new THREE.Quaternion();
+
+  for (let i = 0; i < k; i++) {
+    const t = (i + 1) / (k + 1);
+    const w = t * t * (3 - 2 * t); // smoothstep
+    const li = i * 4;
+    const ri = (count - 1 - i) * 4;
+
+    qL.set(a[li], a[li + 1], a[li + 2], a[li + 3]).normalize();
+    qR.set(a[ri], a[ri + 1], a[ri + 2], a[ri + 3]).normalize();
+
+    qMixL.copy(qL).slerp(qR, w).normalize();
+    qMixR.copy(qR).slerp(qL, w).normalize();
+
+    a[li] = qMixL.x;
+    a[li + 1] = qMixL.y;
+    a[li + 2] = qMixL.z;
+    a[li + 3] = qMixL.w;
+
+    a[ri] = qMixR.x;
+    a[ri + 1] = qMixR.y;
+    a[ri + 2] = qMixR.z;
+    a[ri + 3] = qMixR.w;
+  }
 }
 
 /**
@@ -145,6 +222,7 @@ export class AnimController {
   private lastLocomotionId = "";
   private lastState: ActionState | null = null;
   private lastCombo = -1;
+  private currentActionT = 0;
 
   constructor(mixer: THREE.AnimationMixer, anims: AnimSet) {
     this.mixer = mixer;
@@ -157,6 +235,7 @@ export class AnimController {
   }
 
   update(dt: number) {
+    this.currentActionT += dt;
     this.mixer.update(dt);
   }
 
@@ -223,7 +302,9 @@ export class AnimController {
       case "moving": {
         // Locomotion blend
         const locoId = pickLocomotionId(localMoveX, localMoveZ, speed, sprint);
-        if (locoId !== this.lastLocomotionId || (this.lastState !== "idle" && this.lastState !== "moving")) {
+        const changed = locoId !== this.lastLocomotionId || (this.lastState !== "idle" && this.lastState !== "moving");
+        const allowSwitch = this.currentActionT >= 0.12 || this.lastState === "attack_recovery" || this.lastState === "hit";
+        if (changed && allowSwitch) {
           const action = pickLocomotion(this.anims, locoId);
           this.fadeTo(action, 0.26, true);
           // Speed up walk if sprinting and using walk fallback
@@ -262,6 +343,7 @@ export class AnimController {
       action.fadeIn(fade);
     }
     this.current = action;
+    this.currentActionT = 0;
   }
 }
 

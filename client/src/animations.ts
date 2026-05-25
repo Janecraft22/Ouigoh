@@ -9,24 +9,34 @@ import type { ActionState, AttackKind } from "@ouigoh/shared";
 export function findClip(clips: THREE.AnimationClip[], aliases: string[]): THREE.AnimationClip | null {
   // Lowercase & strip common prefixes
   for (const alias of aliases) {
-    const want = alias.toLowerCase();
+    const want = canonical(alias);
     const exact = clips.find((c) => normalize(c.name) === want);
     if (exact) return exact;
   }
   for (const alias of aliases) {
-    const want = alias.toLowerCase();
-    const sub = clips.find((c) => normalize(c.name).includes(want));
+    const want = canonical(alias);
+    const sub = clips.find((c) => {
+      const got = normalize(c.name);
+      // Match both directions to handle cases like "leftstrafe" vs "strafeleft"
+      return got.includes(want) || want.includes(got);
+    });
     if (sub) return sub;
   }
   return null;
 }
 
 function normalize(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/^.*?::/, "")
-    .replace(/^(take_?\d+|takeoo1|take 001)$/, "")
-    .replace(/^(murderer|zombie|character)[_\s]?/, "");
+  return canonical(
+    name
+      .toLowerCase()
+      .replace(/^.*?::/, "")
+      .replace(/^(take_?\d+|takeoo1|take 001)\b/, "")
+      .replace(/^(murderer|zombie|character)[_\s-]?/, ""),
+  );
+}
+
+function canonical(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
 
 export interface AnimSet {
@@ -60,14 +70,14 @@ export function buildAnimSet(mixer: THREE.AnimationMixer, clips: THREE.Animation
     if (!loop) action.clampWhenFinished = true;
     return action;
   };
-  return {
+  const set: AnimSet = {
     idle: mk(["idle"], true),
-    walk: mk(["walk"], true),
-    run: mk(["run"], true),
-    backpedal: mk(["backpedal", "back"], true),
+    walk: mk(["walk", "walking"], true),
+    run: mk(["run", "running", "jog"], true),
+    backpedal: mk(["backpedal", "back", "backward"], true),
     strafeLeft: mk(["strafe_left", "shuffle_left", "sidestep_left", "left"], true),
     strafeRight: mk(["strafe_right", "shuffle_right", "sidestep_right", "right"], true),
-    slash1: mk(["slash_1", "slash1", "slash"], false),
+    slash1: mk(["slash_1", "slash1", "slash", "attack", "melee"], false),
     slashStart: mk(["slash_start"], false),
     slashLoop: mk(["slash_loop"], true),
     slashEnd: mk(["slash_end"], false),
@@ -80,6 +90,19 @@ export function buildAnimSet(mixer: THREE.AnimationMixer, clips: THREE.Animation
     roar: mk(["roar"], false),
     sneak: mk(["sneak"], true),
   };
+
+  // Safety fallback: if key locomotion clips are missing but clips exist, use first clip.
+  // This prevents "frozen statue" behavior on unusual FBX naming conventions.
+  if (clips.length > 0) {
+    const first = mixer.clipAction(clips[0]);
+    first.enabled = true;
+    first.setLoop(THREE.LoopRepeat, Infinity);
+    if (!set.idle) set.idle = first;
+    if (!set.walk) set.walk = first;
+    if (!set.run) set.run = first;
+  }
+
+  return set;
 }
 
 /**

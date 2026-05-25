@@ -28,10 +28,10 @@ export function findClip(clips: THREE.AnimationClip[], aliases: string[]): THREE
 function normalize(name: string): string {
   return canonical(
     name
-      .toLowerCase()
-      .replace(/^.*?::/, "")
-      .replace(/^(take_?\d+|takeoo1|take 001)\b/, "")
-      .replace(/^(murderer|zombie|character)[_\s-]?/, ""),
+    .toLowerCase()
+    .replace(/^.*?::/, "")
+    .replace(/^(take_?\d+|takeoo1|take 001)\b/, "")
+    .replace(/^(murderer|zombie|character)[_\s-]?/, ""),
   );
 }
 
@@ -61,8 +61,9 @@ export interface AnimSet {
 }
 
 export function buildAnimSet(mixer: THREE.AnimationMixer, clips: THREE.AnimationClip[]): AnimSet {
+  const prepared = clips.length === 1 ? buildGeneratedSubclips(clips[0]) : clips;
   const mk = (aliases: string[], loop = true): THREE.AnimationAction | null => {
-    const clip = findClip(clips, aliases);
+    const clip = findClip(prepared, aliases);
     if (!clip) return null;
     const action = mixer.clipAction(clip);
     action.enabled = true;
@@ -91,18 +92,45 @@ export function buildAnimSet(mixer: THREE.AnimationMixer, clips: THREE.Animation
     sneak: mk(["sneak"], true),
   };
 
-  // Safety fallback: if key locomotion clips are missing but clips exist, use first clip.
-  // This prevents "frozen statue" behavior on unusual FBX naming conventions.
-  if (clips.length > 0) {
-    const first = mixer.clipAction(clips[0]);
-    first.enabled = true;
-    first.setLoop(THREE.LoopRepeat, Infinity);
-    if (!set.idle) set.idle = first;
-    if (!set.walk) set.walk = first;
-    if (!set.run) set.run = first;
-  }
-
   return set;
+}
+
+function buildGeneratedSubclips(master: THREE.AnimationClip): THREE.AnimationClip[] {
+  // Some FBX exports ship as one long "take" containing many moves back-to-back.
+  // Split into named clips so gameplay states can trigger the right move.
+  const ranges: Array<{ name: string; start: number; end: number }> = [
+    { name: "spawn", start: 0, end: 45 },
+    { name: "idle", start: 50, end: 145 },
+    { name: "walk", start: 150, end: 230 },
+    { name: "run", start: 235, end: 305 },
+    { name: "backpedal", start: 310, end: 380 },
+    { name: "strafe_left", start: 385, end: 455 },
+    { name: "strafe_right", start: 460, end: 530 },
+    { name: "slash_1", start: 535, end: 585 },
+    { name: "slash_start", start: 590, end: 635 },
+    { name: "slash_loop", start: 636, end: 700 },
+    { name: "slash_end", start: 701, end: 745 },
+    { name: "hit_front", start: 750, end: 790 },
+    { name: "hit_back", start: 791, end: 830 },
+    { name: "hit_left", start: 831, end: 870 },
+    { name: "hit_right", start: 871, end: 910 },
+    { name: "death", start: 915, end: 1010 },
+    { name: "sneak", start: 1015, end: 1090 },
+    { name: "roar", start: 1095, end: 1165 },
+  ];
+  const fps = 30;
+  const maxFrame = Math.floor(master.duration * fps);
+  const out: THREE.AnimationClip[] = [];
+  for (const r of ranges) {
+    if (r.start >= maxFrame - 1) continue;
+    const end = Math.min(r.end, maxFrame - 1);
+    if (end <= r.start + 1) continue;
+    const sub = THREE.AnimationUtils.subclip(master, r.name, r.start, end, fps);
+    if (sub.tracks.length > 0 && sub.duration > 0) out.push(sub);
+  }
+  // Keep original as final fallback for debugging/manual tuning.
+  out.push(master);
+  return out;
 }
 
 /**

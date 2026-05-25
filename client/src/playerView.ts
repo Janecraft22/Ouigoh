@@ -49,6 +49,9 @@ export class PlayerView {
     // Source model is hidden in Game.preload() because it is only a clone template.
     // Ensure each spawned player clone is force-enabled for rendering.
     cloned.visible = true;
+    // Source template is parked underground in Game.preload(); reset local transform
+    // so spawned players appear at their actual world position.
+    cloned.position.set(0, 0, 0);
     cloned.traverse((obj) => {
       obj.visible = true;
       if ((obj as THREE.Mesh).isMesh || (obj as THREE.SkinnedMesh).isSkinnedMesh) {

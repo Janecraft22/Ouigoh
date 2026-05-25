@@ -96,27 +96,27 @@ export function buildAnimSet(mixer: THREE.AnimationMixer, clips: THREE.Animation
 }
 
 function buildGeneratedSubclips(master: THREE.AnimationClip): THREE.AnimationClip[] {
-  // Some FBX exports ship as one long "take" containing many moves back-to-back.
-  // Split into named clips so gameplay states can trigger the right move.
+  // Zombie Murderer master timeline (Bitgem frame sheet):
+  // https://shop.bitgem3d.com/products/low-poly-zombie-murderer
   const ranges: Array<{ name: string; start: number; end: number }> = [
-    { name: "spawn", start: 0, end: 45 },
-    { name: "idle", start: 50, end: 145 },
-    { name: "walk", start: 150, end: 230 },
-    { name: "run", start: 235, end: 305 },
-    { name: "backpedal", start: 310, end: 380 },
-    { name: "strafe_left", start: 385, end: 455 },
-    { name: "strafe_right", start: 460, end: 530 },
-    { name: "slash_1", start: 535, end: 585 },
-    { name: "slash_start", start: 590, end: 635 },
-    { name: "slash_loop", start: 636, end: 700 },
-    { name: "slash_end", start: 701, end: 745 },
-    { name: "hit_front", start: 750, end: 790 },
-    { name: "hit_back", start: 791, end: 830 },
-    { name: "hit_left", start: 831, end: 870 },
-    { name: "hit_right", start: 871, end: 910 },
-    { name: "death", start: 915, end: 1010 },
-    { name: "sneak", start: 1015, end: 1090 },
-    { name: "roar", start: 1095, end: 1165 },
+    { name: "backpedal", start: 30, end: 59 },
+    { name: "death", start: 90, end: 116 },
+    { name: "hit_back", start: 120, end: 159 },
+    { name: "hit_front", start: 165, end: 209 },
+    { name: "hit_left", start: 215, end: 249 },
+    { name: "hit_right", start: 255, end: 289 },
+    { name: "idle", start: 329, end: 363 },
+    { name: "roar", start: 470, end: 526 },
+    { name: "run", start: 553, end: 576 },
+    { name: "strafe_left", start: 629, end: 648 },
+    { name: "strafe_right", start: 694, end: 713 },
+    { name: "slash_1", start: 740, end: 784 },
+    { name: "slash_start", start: 795, end: 804 },
+    { name: "slash_loop", start: 833, end: 862 },
+    { name: "slash_end", start: 891, end: 905 },
+    { name: "sneak", start: 959, end: 1008 },
+    { name: "spawn", start: 1060, end: 1179 },
+    { name: "walk", start: 1459, end: 1488 },
   ];
   const fps = 30;
   const maxFrame = Math.floor(master.duration * fps);
@@ -158,6 +158,12 @@ export class AnimController {
 
   update(dt: number) {
     this.mixer.update(dt);
+  }
+
+  playSpawn() {
+    if (this.anims.spawn) {
+      this.fadeTo(this.anims.spawn, 0.08, true);
+    }
   }
 
   /**

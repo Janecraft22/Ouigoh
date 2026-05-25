@@ -101,9 +101,8 @@ export class InputController {
 
   private onMouseMove = (e: MouseEvent) => {
     if (!this.mouseActive) return;
-    // Inverted earlier; use natural camera controls:
-    // move mouse right -> look right, move mouse up -> look up.
-    this.state.yaw += e.movementX * this.mouseSensitivity;
+    // Horizontal look should match previous in-game expectation.
+    this.state.yaw -= e.movementX * this.mouseSensitivity;
     this.state.pitch += e.movementY * this.mouseSensitivity;
     // Wrap yaw to (-PI, PI]
     if (this.state.yaw > Math.PI) this.state.yaw -= Math.PI * 2;
